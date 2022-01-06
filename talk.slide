@@ -1,0 +1,297 @@
+On reflection
+6 Jan 2022
+
+adg
+
+* Questions
+
+What are interfaces?
+
+What is package `reflect`? Why do we need it?
+
+How does `fmt.Print` work? `json.Unmarshal`?
+
+* Implementing print
+
+This `print` function prints a `string` to standard output:
+
+.play print.go
+
+* Printing numbers
+
+A version that prints an `int`:
+
+.play print-int.go
+
+(The mechanics of `strconv.FormatInt` are deserving of another discussion.)
+
+* Handling both types
+
+How do we implement a `print` that takes either a `string` or `int`?
+
+The type signature must change; neither of these will do:
+
+.code print.go /func print/
+.code print-int.go /func print/
+
+* Interfaces
+
+Go's mechanism (as of 1.17) for handling arbitrary types is the _interface_.
+
+An interface defines a set of methods:
+
+.code interfaces.go /type Computer/,/^}/
+
+Types that implement those methods implement the interface:
+
+.play -edit interfaces.go /type Doubler/,
+
+* Interface values
+
+An interface value is a pair of values: `(type,`data)`
+
+.code interfaces.go /var c/
+
+The values held by the variable `c` are `(Doubler,`2)`.
+
+When the method `Compute` on `c` is called, the Go runtime looks up the
+type and finds its `Compute` method
+
+.code interfaces.go /func \(d Doubler/
+
+and calls it, passing in the `2` value as its receiver argument.
+
+(A bit like us taking the value of a method and calling it:)
+
+.play interface-values.go /var f/,/fmt/
+
+* The empty interface
+
+An interface that declares zero methods can hold any type that implements those
+methods. We call this type the _empty_interface_.
+
+.code empty.go /var i/
+
+All Go types implement at least zero methods, so an empty interface can hold
+any Go type:
+
+.play empty.go /start/,/end/
+
+`fmt.Println` uses this property to accept arguments of any type:
+
+	package fmt
+
+	func Println(a ...interface{}) (n int, err error)
+
+* Printing string and int
+
+Back to our `print` function - to accept either `string` or `int`
+we can use an `interface{}` argument:
+
+.code print-empty.go /func/,
+
+But how does `print` know the type of `v`?
+
+* Type assertions
+
+Go's _type_assertions_ let us assert the underlying type of an interface, and
+get its concrete value.
+
+.play print-assert.go /func/,
+
+* Type switches
+
+Go also provides a _type_switch_ construct to make repeated assertions more
+ergonomic.
+
+.play print-switch.go /func/,
+
+* Handling arbitrary types
+
+The `fmt` package can print anything you give it:
+
+.play fmt-arbitrary.go /start/,/end/
+
+`fmt` could have a type switch like ours, that includes `float64`, but
+how can it print the `Vector` or the map?
+
+Clearly `fmt` is doing something special.
+
+* Reflection
+
+The `reflect` package lets us write code that computes with types.
+
+Its `TypeOf` and `ValueOf` functions let us inspect an interface value:
+
+.code reflect.go /var i/,/v :=/
+
+Then we can use our `print` function to see what they are:
+
+.play reflect.go /"\("/,/"\)"/
+
+.link https://pkg.go.dev/reflect
+
+* reflect.Type
+
+A `reflect.Type` represents a Go type.
+Its many methods can be used to inspect the type.
+
+	func TypeOf(i interface{}) Type
+
+	type Type interface {
+		Align() int
+		FieldAlign() int
+		Method(int) Method
+		MethodByName(string) (Method, bool)
+		NumMethod() int
+		Name() string
+		PkgPath() string
+		Size() uintptr
+		String() string
+		Kind() Kind
+		Implements(u Type) bool
+		AssignableTo(u Type) bool
+		ConvertibleTo(u Type) bool
+		Comparable() bool
+		Bits() int
+		ChanDir() ChanDir
+		IsVariadic() bool
+		...
+
+* reflect.Value
+
+A `reflect.Value` holds a Go value
+Its many methods can be used to interact with that value.
+
+	func ValueOf(i interface{}) Value
+
+	type Value struct {
+		// Has unexported fields.
+	}
+
+	func (v Value) Addr() Value
+	func (v Value) Bool() bool
+	func (v Value) Bytes() []byte
+	func (v Value) Call(in []Value) []Value
+	func (v Value) CallSlice(in []Value) []Value
+	func (v Value) CanAddr() bool
+	func (v Value) CanConvert(t Type) bool
+	func (v Value) CanInterface() bool
+	func (v Value) CanSet() bool
+	func (v Value) Cap() int
+	func (v Value) Close()
+	func (v Value) Complex() complex128
+	func (v Value) Convert(t Type) Value
+	func (v Value) Elem() Value
+	...
+
+* Reflecting on simple types
+
+We can inspect and compare type names and kinds:
+
+.play -edit reflect-type.go /start/,/end/
+
+* Reflecting on simple values
+
+Similarly, we can inspect values and their types:
+
+.code reflect-value.go /mark1/,/mark2/
+
+Compute on their integer values:
+
+.code reflect-value.go /mark2/,/mark3/
+
+And, with assertion, convert them back to their original type:
+
+.play -edit reflect-value.go /mark3/,/end/
+
+* Printing ints of any type
+
+Using reflection, we can make our `print` function handle any `int` type:
+
+.play print-numbers.go /func/,
+
+* Reflecting on complex types
+
+We can also inspect struct fields, methods, and more:
+
+.play reflect-type2.go /func/,
+
+* Reflecting on complex values
+
+Predictably, we can also compute with struct values:
+
+.play reflect-value2.go /type/,
+
+* Printing structs (1)
+
+Let's make our `print` function handle structs.
+
+First, let's split our `print` into `sprint` and `print` functions:
+
+.code print-struct1.go /start/,/end/
+
+* Printing structs (2)
+
+Now we can add a case to `sprint` that calls itself to format struct fields:
+
+.code print-struct2.go /start/,/before/
+.play print-struct2.go /hello/
+
+This is how the `fmt` package formats all Go types.
+
+* A breather
+
+We have discussed:
+
+- Interfaces and their representation,
+- The empty interface,
+- Type assertions and type switches,
+- Reflecting on values and types,
+- Using these ideas to implement `print`.
+
+* But wait! There's more...
+
+Package `reflect` doesn't just *inspect* types and values. 
+
+It can *create* them.
+
+* Unmarshaling JSON
+
+Ever wondered how `json.Unmarshal` works?
+
+.play json.go /start/,/end/
+
+Here we see it dynamically allocate and populate slices of arbitray types.
+
+It does the same for structs and maps.
+
+* Our own parser
+
+The `stringTo` function is a very basic parser of ints and strings:
+
+.code stringto-simple.go /func/,/^}/
+.play stringto-simple.go /start/,/end/
+
+* Parsing slices
+
+And here we add a case that allows it to parse slices of ints and strings:
+
+.code stringto-slice.go /start/,/end/
+
+Now when we pass `stringTo` a slice, it allocates and populates the slice:
+
+.play stringto-slice.go /start2/,/end/
+
+You can imagine similar code for structs and maps.
+This is how `json.Unmarshal` and other decoders work with arbitrary values.
+
+* Making functions
+
+The `reflect` package can also make _functions_.
+
+.play -edit func.go /func/,
+
+* Questions?
+
+
